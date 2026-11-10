@@ -151,17 +151,20 @@ try {
         throw 'The output pane is not docked below the editor.'
     }
     [void] (Wait-For {
-        if ([NotepadTest]::Text($output).Contains('{"items":[1,2]}') -and
-            [NotepadTest]::Text($status).Contains('Exit code: 0')) { $true }
-    } 'the raw JSON output and successful exit')
+        if ([NotepadTest]::Text($output).Contains('  "items": [') -and
+            [NotepadTest]::Text($status).Contains('Exit code: 0') -and
+            [NotepadTest]::Text($json) -eq 'View Raw') { $true }
+    } 'automatic JSON formatting after a successful exit')
     [void] [NotepadTest]::Send($json, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) # BM_CLICK
     [void] (Wait-For {
-        if ([NotepadTest]::Text($output).Contains('  "items": [')) { $true }
-    } 'the formatted JSON output')
+        if ([NotepadTest]::Text($output).Contains('{"items":[1,2]}') -and
+            [NotepadTest]::Text($json) -eq 'View JSON') { $true }
+    } 'the restored raw output')
     [void] [NotepadTest]::Send($json, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
     [void] (Wait-For {
-        if ([NotepadTest]::Text($output).Contains('{"items":[1,2]}')) { $true }
-    } 'the restored raw output')
+        if ([NotepadTest]::Text($output).Contains('  "items": [')) { $true }
+    } 'the formatted JSON view')
+    [void] [NotepadTest]::Send($json, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
 
     [void] [NotepadTest]::Post($notepadWindow, 2072, [IntPtr]::Zero, [IntPtr] 10002) # Clone to other view
     $otherEditor = Wait-For {
@@ -181,8 +184,8 @@ try {
     [void] [NotepadTest]::Send($panel, 0x0111, [IntPtr] 65640, $history) # CBN_SELCHANGE
     [void] (Wait-For {
         if ([NotepadTest]::Text($output).Contains('{"items":[1,2]}')) { $true }
-    } 'the previous run from history')
-    Write-Host 'Notepad++ editor menus, bottom docking, line joining, JSON/Raw, and history passed.'
+    } 'the previous run and its raw view from history')
+    Write-Host 'Notepad++ editor menus, bottom docking, line joining, automatic JSON, and history passed.'
 } finally {
     if (!$process.HasExited) {
         [void] $process.CloseMainWindow()

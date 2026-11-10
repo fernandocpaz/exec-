@@ -155,7 +155,7 @@ void OutputPanel::start(std::string selection, std::wstring directory, bool join
 
     current_ = {};
     pendingBytes_.clear();
-    jsonView_ = false;
+    selectedJson_.reset();
     stopping_ = false;
     selectedResult_ = -1;
     started_ = std::chrono::steady_clock::now();
@@ -373,9 +373,7 @@ void OutputPanel::command(int id, int event) {
             inputMode_ = static_cast<InputMode>(selectedChoice(input_));
             savePreferences();
         } else if (id == historyPicker && !run_) {
-            selectedResult_ = selectedChoice(history_) - 1;
-            jsonView_ = false;
-            showResult();
+            selectResult(selectedChoice(history_) - 1);
         }
         return;
     }
@@ -399,8 +397,9 @@ void OutputPanel::command(int id, int event) {
         savePreferences();
         break;
     case jsonButton:
-        if (!run_ && selectedResult_ >= 0) {
-            jsonView_ = !jsonView_;
+        if (selectedJson_) {
+            auto& result = results_[selectedResult_];
+            result.preferJson = !result.preferJson;
             showResult();
         }
         break;
@@ -409,10 +408,8 @@ void OutputPanel::command(int id, int event) {
         break;
     case clearButton:
         if (!run_) {
-            selectedResult_ = -1;
-            jsonView_ = false;
             SendMessageW(history_, CB_SETCURSEL, 0, 0);
-            showResult();
+            selectResult(-1);
         }
         break;
     }
@@ -486,20 +483,29 @@ void OutputPanel::poll() {
     if (results_.size() > historyLimit) {
         results_.pop_back();
     }
-    selectedResult_ = 0;
     KillTimer(hwnd_, pollTimer);
     run_.reset();
     EnableWindow(stop_, FALSE);
     EnableWindow(shell_, TRUE);
     EnableWindow(input_, TRUE);
+    selectResult(0, true);
     refreshHistory();
-    SetWindowTextW(status_, results_.front().status.c_str());
-    EnableWindow(clear_, TRUE);
-    EnableWindow(json_, !results_.front().truncated && !results_.front().output.empty());
 }
 
-void OutputPanel::showResult() {
-    if (selectedResult_ < 0 || static_cast<std::size_t>(selectedResult_) >= results_.size()) {
+void OutputPanel::selectResult(int index, bool keepRawOutput) {
+    selectedJson_.reset();
+    selectedResult_ = index >= 0 && static_cast<std::size_t>(index) < results_.size() ? index : -1;
+    if (selectedResult_ >= 0) {
+        const auto& result = results_[selectedResult_];
+        if (!result.truncated) {
+            selectedJson_ = prettyJsonBody(result.output);
+        }
+    }
+    showResult(keepRawOutput);
+}
+
+void OutputPanel::showResult(bool keepRawOutput) {
+    if (selectedResult_ < 0) {
         SetWindowTextW(output_, L"");
         SetWindowTextW(status_, L"Select text in the editor and choose exec++.");
         SetWindowTextW(json_, L"View JSON");
@@ -508,24 +514,17 @@ void OutputPanel::showResult() {
         return;
     }
     const auto& result = results_[selectedResult_];
-    auto status = result.status;
-    if (jsonView_) {
-        const auto formatted = result.truncated ? std::nullopt : prettyJsonBody(result.output);
-        if (formatted) {
-            SetWindowTextW(output_, formatted->c_str());
-            status += L"  |  JSON body";
-        } else {
-            jsonView_ = false;
-            status += L"  |  No complete JSON object or array";
-        }
-    }
-    if (!jsonView_) {
+    const bool showJson = result.preferJson && selectedJson_.has_value();
+    if (showJson) {
+        SetWindowTextW(output_, selectedJson_->c_str());
+    } else if (!keepRawOutput) {
         SetWindowTextW(output_, result.output.c_str());
     }
+    const auto status = showJson ? result.status + L"  |  JSON body" : result.status;
     SetWindowTextW(status_, status.c_str());
-    SetWindowTextW(json_, jsonView_ ? L"View Raw" : L"View JSON");
+    SetWindowTextW(json_, showJson ? L"View Raw" : L"View JSON");
     EnableWindow(clear_, TRUE);
-    EnableWindow(json_, !result.truncated && !result.output.empty());
+    EnableWindow(json_, selectedJson_.has_value());
 }
 
 void OutputPanel::refreshHistory() {

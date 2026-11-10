@@ -4,9 +4,10 @@ exec++ runs selected text from Notepad++ and shows live output in a docked pane 
 
 ## Install on Windows x64
 
-1. Close Notepad++.
-2. Copy the `exec++` folder containing `exec++.dll` into the Notepad++ `plugins` directory. For an installed copy, the path is usually `C:\Program Files\Notepad++\plugins\exec++\exec++.dll`. For a portable copy, use the `plugins` folder next to `notepad++.exe`.
-3. Start 64-bit x64 Notepad++.
+1. Download and extract the Windows x64 ZIP from [GitHub Releases](https://github.com/fernandocpaz/exec-/releases).
+2. Close Notepad++.
+3. Copy the `exec++` folder containing `exec++.dll` into the Notepad++ `plugins` directory. For an installed copy, the path is usually `C:\Program Files\Notepad++\plugins\exec++\exec++.dll`. For a portable copy, use the `plugins` folder next to `notepad++.exe`.
+4. Start 64-bit x64 Notepad++.
 
 ## Run a selection
 
@@ -33,7 +34,7 @@ Write-Output
 
 The pane uses 11-point Consolas, follows Notepad++’s light or dark theme, and wraps long lines by default. Use **Find Next** or Enter in the search box, **Copy All** for the current view, and **Clear** to clear the display. The **Run history** dropdown holds the last ten results in memory and can restore a cleared result. **Stop** ends the active run.
 
-**View JSON** formats a complete JSON object or array, including the body of a `curl.exe -sS -i` response. **View Raw** restores the original output with its headers. Output is capped at 1 MiB per run. Shell, input mode, and word wrap are saved across restarts.
+When a run finishes, exec++ automatically formats a complete JSON object or array, including the body of a `curl.exe -sS -i` response or a JSON string that contains an object or array. **View Raw** restores the original output with its headers. Plain text and mixed output stay raw. Output is capped at 1 MiB per run. Shell, input mode, and word wrap are saved across restarts.
 
 ## Build from source
 
@@ -46,5 +47,7 @@ ctest --test-dir build -C Release --output-on-failure
 ```
 
 The DLL is at `build\Release\exec++.dll`. The smoke tests cover line joining, JSON formatting, shell output, exit codes, truncation, and cancellation. The PowerShell 7 test is enabled when CMake finds `pwsh`.
+
+A successful push to `main` with a new version in `CMakeLists.txt` publishes a GitHub Release with the tested Windows x64 ZIP.
 
 The Notepad++ and Scintilla interface headers are vendored from the Notepad++ repository at commit `37482a9bf3efb2e38a6e6b4c8d759533a0b329dc`. Their license files are in `vendor`.

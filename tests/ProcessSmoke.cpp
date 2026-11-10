@@ -66,8 +66,15 @@ void checkCommandText() {
     require(json && *json == L"{\r\n  \"a\": [\r\n    1,\r\n    true,\r\n    \"x\\n\"\r\n"
                               L"  ],\r\n  \"a\": -5e+2\r\n}",
             "JSON should strip HTTP headers and preserve escapes, numbers, and duplicate keys");
+    const auto encoded = prettyJsonBody(LR"json("\n{\"name\":\"caf\u00e9\",\"line\":\"one\\ntwo\"}\r\n")json");
+    require(encoded && *encoded == L"{\r\n  \"name\": \"caf\u00e9\",\r\n  \"line\": \"one\\ntwo\"\r\n}",
+            "JSON should decode one string layer and preserve inner JSON escapes");
+    require(prettyJsonBody(LR"json("[1,2]")json") == prettyJsonBody(L"[1,2]"),
+            "JSON should also unwrap an encoded array");
     require(!prettyJsonBody(L"{\"a\":01}") && !prettyJsonBody(L"[1,]") &&
-                !prettyJsonBody(L"prefix {\"a\":1}") && !prettyJsonBody(L"{\"a\":1} trailing"),
+                !prettyJsonBody(L"prefix {\"a\":1}") && !prettyJsonBody(L"{\"a\":1} trailing") &&
+                !prettyJsonBody(L"\"just text\"") && !prettyJsonBody(L"\"[1,]\"") &&
+                !prettyJsonBody(LR"json("\u00zz")json"),
             "JSON formatting should reject incomplete, invalid, and mixed output");
 }
 

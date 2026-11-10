@@ -11,6 +11,8 @@ permissions:
 jobs:
   windows-x64:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Configure
@@ -29,13 +31,66 @@ jobs:
           Expand-Archive -LiteralPath $archive -DestinationPath $folder
           ./tests/NotepadSmoke.ps1 -Notepad (Join-Path $folder 'notepad++.exe') -Plugin 'build/Release/exec++.dll'
       - name: Stage plugin
+        id: package
         shell: pwsh
         run: |
+          $versionLine = Select-String -Path 'build/CMakeCache.txt' -Pattern '^CMAKE_PROJECT_VERSION:STATIC=([0-9]+\.[0-9]+\.[0-9]+)$'
+          if (!$versionLine) { throw 'Could not read the project version from CMake.' }
+          "version=$($versionLine.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
           New-Item -ItemType Directory -Path 'dist/exec++' -Force
+          New-Item -ItemType Directory -Path 'dist/licenses' -Force
           Copy-Item -LiteralPath 'build/Release/exec++.dll' -Destination 'dist/exec++'
           Copy-Item -LiteralPath 'README.md', 'LICENSE' -Destination 'dist'
+          Copy-Item -LiteralPath 'vendor/notepad-plus-plus/LICENSE' -Destination 'dist/licenses/Notepad++-LICENSE'
+          Copy-Item -LiteralPath 'vendor/scintilla/LICENSE' -Destination 'dist/licenses/Scintilla-LICENSE'
       - uses: actions/upload-artifact@v4
         with:
           name: exec-plus-plus-windows-x64
           path: dist/
           if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: windows-x64
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: execpp-release-${{ needs.windows-x64.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: exec-plus-plus-windows-x64
+          path: dist
+      - name: Publish versioned Windows ZIP
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.windows-x64.outputs.version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          name="exec-plus-plus-${tag}-windows-x64.zip"
+          if existing=$(gh release view "$tag" --json isDraft,assets 2>/dev/null); then
+            if jq -e --arg name "$name" '(.isDraft | not) and any(.assets[]; .name == $name and .size > 0)' <<< "$existing" >/dev/null; then
+              echo "$tag is already published."
+              exit 0
+            fi
+            echo "::error::A release for $tag already exists without a published Windows ZIP."
+            exit 1
+          fi
+
+          ref="refs/tags/$tag"
+          refs=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$tag")
+          if jq -e --arg ref "$ref" 'any(.[]; .ref == $ref)' <<< "$refs" >/dev/null; then
+            tagged_commit=$(gh api "repos/$GH_REPO/commits/$tag" --jq .sha)
+            if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+              echo "::error::$tag points to a different commit."
+              exit 1
+            fi
+          fi
+
+          archive="$RUNNER_TEMP/$name"
+          (cd dist && zip -qr "$archive" 'exec++' README.md LICENSE licenses)
+          gh release create "$tag" "$archive" --target "$GITHUB_SHA" --title "exec++ $tag" --generate-notes

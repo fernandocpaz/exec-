@@ -6,6 +6,7 @@
 #include <chrono>
 #include <deque>
 #include <memory>
+#include <optional>
 
 class OutputPanel {
 public:
@@ -22,6 +23,7 @@ private:
         std::wstring status;
         std::wstring title;
         bool truncated = false;
+        bool preferJson = true;
     };
 
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -30,7 +32,8 @@ private:
     void command(int id, int event);
     void append(const std::wstring& text);
     void poll();
-    void showResult();
+    void selectResult(int index, bool keepRawOutput = false);
+    void showResult(bool keepRawOutput = false);
     void refreshHistory();
     void findNext() const;
     void copyAll() const;
@@ -56,7 +59,6 @@ private:
 
     std::wstring preferences_;
     bool wrapEnabled_ = true;
-    bool jsonView_ = false;
     bool stopping_ = false;
     Shell selectedShell_ = Shell::WindowsPowerShell;
     InputMode inputMode_ = InputMode::Script;
@@ -67,4 +69,5 @@ private:
     std::deque<Result> results_;
     std::size_t runNumber_ = 0;
     int selectedResult_ = -1;
+    std::optional<std::wstring> selectedJson_;
 };

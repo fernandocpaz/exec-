@@ -65,8 +65,14 @@ bool decimal(wchar_t c) {
     return c >= L'0' && c <= L'9';
 }
 
-bool hexadecimal(wchar_t c) {
-    return decimal(c) || (c >= L'a' && c <= L'f') || (c >= L'A' && c <= L'F');
+int hexDigit(wchar_t c) {
+    if (decimal(c)) {
+        return c - L'0';
+    }
+    if (c >= L'a' && c <= L'f') {
+        return c - L'a' + 10;
+    }
+    return c >= L'A' && c <= L'F' ? c - L'A' + 10 : -1;
 }
 
 class JsonFormatter {
@@ -74,13 +80,24 @@ public:
     explicit JsonFormatter(std::wstring_view input) : input_(input) {}
 
     std::optional<std::wstring> format() {
+        if (peek() == L'"') {
+            std::wstring decoded;
+            if (!quotedString(&decoded) || position_ != input_.size()) {
+                return std::nullopt;
+            }
+            return JsonFormatter(trimJsonWhitespace(decoded)).formatCollection();
+        }
+        return formatCollection();
+    }
+
+private:
+    std::optional<std::wstring> formatCollection() {
         if ((peek() != L'{' && peek() != L'[') || !value(0) || position_ != input_.size()) {
             return std::nullopt;
         }
         return std::move(output_);
     }
 
-private:
     wchar_t peek() const {
         return position_ < input_.size() ? input_[position_] : L'\0';
     }
@@ -104,32 +121,43 @@ private:
         output_.append(depth * 2, L' ');
     }
 
-    bool quotedString() {
+    bool quotedString(std::wstring* decoded = nullptr) {
+        constexpr std::wstring_view escapeCodes = L"\"\\/bfnrt";
+        constexpr std::wstring_view escapeValues = L"\"\\/\b\f\n\r\t";
         if (!take(L'"')) {
             return false;
         }
         while (position_ < input_.size()) {
-            const wchar_t c = input_[position_++];
+            wchar_t c = input_[position_++];
             if (c == L'"') {
                 return true;
             }
             if (c < L' ') {
                 return false;
             }
-            if (c != L'\\') {
-                continue;
-            }
-            if (take(L'u')) {
-                for (unsigned i = 0; i < 4; ++i) {
-                    if (!hexadecimal(peek())) {
+            if (c == L'\\') {
+                if (take(L'u')) {
+                    unsigned unit = 0;
+                    for (unsigned i = 0; i < 4; ++i) {
+                        const int digit = hexDigit(peek());
+                        if (digit < 0) {
+                            return false;
+                        }
+                        unit = unit * 16 + static_cast<unsigned>(digit);
+                        ++position_;
+                    }
+                    c = static_cast<wchar_t>(unit);
+                } else {
+                    const auto escape = escapeCodes.find(peek());
+                    if (escape == std::wstring_view::npos) {
                         return false;
                     }
+                    c = escapeValues[escape];
                     ++position_;
                 }
-            } else if (std::wstring_view(L"\"\\/bfnrt").find(peek()) != std::wstring_view::npos) {
-                ++position_;
-            } else {
-                return false;
+            }
+            if (decoded) {
+                *decoded += c;
             }
         }
         return false;
