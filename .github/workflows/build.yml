@@ -1,0 +1,32 @@
+name: Build exec++
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -A x64
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Stage plugin
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path 'dist/exec++' -Force
+          Copy-Item -LiteralPath 'build/Release/exec++.dll' -Destination 'dist/exec++'
+          Copy-Item -LiteralPath 'README.md', 'LICENSE' -Destination 'dist'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exec-plus-plus-windows-x64
+          path: dist/
+          if-no-files-found: error
