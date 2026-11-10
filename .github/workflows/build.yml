@@ -36,10 +36,13 @@ jobs:
         run: |
           $versionLine = Select-String -Path 'build/CMakeCache.txt' -Pattern '^CMAKE_PROJECT_VERSION:STATIC=([0-9]+\.[0-9]+\.[0-9]+)$'
           if (!$versionLine) { throw 'Could not read the project version from CMake.' }
-          "version=$($versionLine.Matches[0].Groups[1].Value)" >> $env:GITHUB_OUTPUT
+          $version = $versionLine.Matches[0].Groups[1].Value
+          $dll = Get-Item -LiteralPath 'build/Release/exec++.dll'
+          if ($dll.VersionInfo.FileVersion -ne "$version.0") { throw 'DLL version does not match the project version.' }
+          "version=$version" >> $env:GITHUB_OUTPUT
           New-Item -ItemType Directory -Path 'dist/exec++' -Force
           New-Item -ItemType Directory -Path 'dist/licenses' -Force
-          Copy-Item -LiteralPath 'build/Release/exec++.dll' -Destination 'dist/exec++'
+          Copy-Item -LiteralPath $dll.FullName -Destination 'dist/exec++'
           Copy-Item -LiteralPath 'README.md', 'LICENSE' -Destination 'dist'
           Copy-Item -LiteralPath 'vendor/notepad-plus-plus/LICENSE' -Destination 'dist/licenses/Notepad++-LICENSE'
           Copy-Item -LiteralPath 'vendor/scintilla/LICENSE' -Destination 'dist/licenses/Scintilla-LICENSE'
@@ -62,7 +65,7 @@ jobs:
         with:
           name: exec-plus-plus-windows-x64
           path: dist
-      - name: Publish versioned Windows ZIP
+      - name: Publish versioned Windows ZIPs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -72,12 +75,17 @@ jobs:
           set -euo pipefail
           tag="v${VERSION}"
           name="exec-plus-plus-${tag}-windows-x64.zip"
+          admin_name="exec-plus-plus-${tag}-plugins-admin-x64.zip"
           if existing=$(gh release view "$tag" --json isDraft,assets 2>/dev/null); then
-            if jq -e --arg name "$name" '(.isDraft | not) and any(.assets[]; .name == $name and .size > 0)' <<< "$existing" >/dev/null; then
+            if jq -e --arg name "$name" --arg admin "$admin_name" '
+              (.isDraft | not) and
+              any(.assets[]; .name == $name and .size > 0) and
+              any(.assets[]; .name == $admin and .size > 0)
+            ' <<< "$existing" >/dev/null; then
               echo "$tag is already published."
               exit 0
             fi
-            echo "::error::A release for $tag already exists without a published Windows ZIP."
+            echo "::error::A release for $tag already exists without both published Windows ZIPs."
             exit 1
           fi
 
@@ -92,5 +100,21 @@ jobs:
           fi
 
           archive="$RUNNER_TEMP/$name"
+          admin_archive="$RUNNER_TEMP/$admin_name"
           (cd dist && zip -qr "$archive" 'exec++' README.md LICENSE licenses)
-          gh release create "$tag" "$archive" --target "$GITHUB_SHA" --title "exec++ $tag" --generate-notes
+          (cd 'dist/exec++' && zip -q "$admin_archive" 'exec++.dll')
+          (cd dist && zip -qr "$admin_archive" README.md LICENSE licenses)
+          unzip -tq "$admin_archive" 'exec++.dll'
+          gh release create "$tag" "$archive" "$admin_archive" --target "$GITHUB_SHA" --title "exec++ $tag" --generate-notes
+
+  plugins-admin-package:
+    needs: [windows-x64, release]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test install and update with WinGUp
+        shell: pwsh
+        timeout-minutes: 4
+        env:
+          VERSION: ${{ needs.windows-x64.outputs.version }}
+        run: ./tests/PluginPackageSmoke.ps1 -Repository $env:GITHUB_REPOSITORY -Version $env:VERSION

@@ -1,11 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
-project(exec-plus-plus VERSION 0.3.0 LANGUAGES CXX)
+project(exec-plus-plus VERSION 0.3.1 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "exec++ targets Windows. Use a Windows compiler or a Windows cross-toolchain.")
 endif()
 
-add_library(execpp SHARED src/Plugin.cpp src/OutputPanel.cpp src/Process.cpp src/CommandText.cpp)
+enable_language(RC)
+configure_file(src/Version.rc.in Version.rc @ONLY)
+
+add_library(execpp SHARED src/Plugin.cpp src/OutputPanel.cpp src/Process.cpp src/CommandText.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/Version.rc")
 target_compile_features(execpp PRIVATE cxx_std_17)
 target_compile_definitions(execpp PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
 target_include_directories(execpp PRIVATE vendor/notepad-plus-plus vendor/scintilla)
