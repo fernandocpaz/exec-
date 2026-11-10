@@ -12,7 +12,7 @@ exec++ runs selected text from Notepad++ and shows live output in a docked pane 
 
 Highlight a command and press **Ctrl+Shift+Enter** or right-click and choose **exec++**. Change the shortcut under **Settings → Shortcut Mapper → Plugin commands**. **Plugins → exec++ → Show Output** opens the pane so you can choose a shell and input mode before running.
 
-The shell picker offers **Windows PowerShell**, **PowerShell 7** (if installed), and **Command Prompt**. Each run starts a fresh shell in the active file’s folder when available. CMD accepts a single command line, which can chain commands with `&` or `&&`.
+The shell picker offers **Windows PowerShell**, **PowerShell 7** (if installed), and **Command Prompt**. Each run starts a fresh shell in the active file’s folder when available. In Windows PowerShell, `curl` runs native `curl.exe` when it is installed. Use `Invoke-WebRequest` explicitly for the PowerShell cmdlet. CMD accepts a single command line, which can chain commands with `&` or `&&`.
 
 | Input mode | Behavior |
 | --- | --- |

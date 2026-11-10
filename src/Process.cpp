@@ -134,7 +134,12 @@ constexpr wchar_t shellArguments[] =
     L"$reader = [IO.StreamReader]::new([Console]::OpenStandardInput(), $utf8); "
     L"$stdout = [IO.StreamWriter]::new([Console]::OpenStandardOutput(), $utf8); $stdout.AutoFlush = $true; [Console]::SetOut($stdout); "
     L"$stderr = [IO.StreamWriter]::new([Console]::OpenStandardError(), $utf8); $stderr.AutoFlush = $true; [Console]::SetError($stderr); "
-    L"try { . ([ScriptBlock]::Create($reader.ReadToEnd())); "
+    L"try { "
+    // Windows PowerShell 5.1 shadows native curl with a web cmdlet alias.
+    L"if ((Get-Alias -Name curl -ErrorAction Ignore).Definition -eq 'Invoke-WebRequest' "
+    L"-and (Get-Command -Name curl.exe -CommandType Application -ErrorAction Ignore)) { "
+    L"Remove-Item -LiteralPath Alias:curl -Force -ErrorAction Stop }; "
+    L". ([ScriptBlock]::Create($reader.ReadToEnd())); "
     L"if ($?) { exit 0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE }; exit 1 } "
     L"catch { [Console]::Error.WriteLine(($_ | Out-String).TrimEnd()); exit 1 }\"";
 

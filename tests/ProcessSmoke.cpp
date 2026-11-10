@@ -101,6 +101,11 @@ int main(int argc, char* argv[]) {
         require(finished.output.find("stderr marker") != std::string::npos,
                 "Standard error was not captured");
 
+        ProcessRun curl("curl --version", {});
+        const auto curlVersion = waitFor(curl);
+        require(curlVersion.exitCode == 0 && curlVersion.output.find("libcurl/") != std::string::npos,
+                "Windows PowerShell resolved curl to a web cmdlet instead of curl.exe");
+
         ProcessRun fail("throw 'expected error'", {});
         const auto failure = waitFor(fail);
         require(failure.exitCode != 0 && failure.output.find("expected error") != std::string::npos,
