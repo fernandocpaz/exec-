@@ -19,6 +19,15 @@ jobs:
         run: cmake --build build --config Release
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      - name: Smoke test in Notepad++
+        shell: pwsh
+        timeout-minutes: 3
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'execpp-notepad.zip'
+          $folder = Join-Path $env:RUNNER_TEMP 'execpp-notepad'
+          Invoke-WebRequest -Uri 'https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.9.9/npp.8.9.9.portable.x64.zip' -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $folder
+          ./tests/NotepadSmoke.ps1 -Notepad (Join-Path $folder 'notepad++.exe') -Plugin 'build/Release/exec++.dll'
       - name: Stage plugin
         shell: pwsh
         run: |
