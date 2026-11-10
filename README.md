@@ -1,27 +1,39 @@
 # exec++
 
-exec++ is a Notepad++ plugin that runs the highlighted text in Windows PowerShell and shows the live output in a resizable pane below the editor. The pane combines standard output and standard error and shows the exit code when the command finishes.
+exec++ runs selected text from Notepad++ and shows live output in a docked pane below the editor. It combines standard output and standard error and shows the exit code and elapsed time.
 
 ## Install on Windows x64
 
 1. Close Notepad++.
-2. Copy the `exec++` folder containing `exec++.dll` into your Notepad++ `plugins` directory. The usual installed path is `C:\Program Files\Notepad++\plugins\exec++\exec++.dll`. For a portable copy, use the `plugins` folder next to `notepad++.exe`.
-3. Start Notepad++.
-
-The DLL and its parent folder both use the name `exec++`. Use the 64-bit x64 edition of Notepad++ with the packaged DLL.
+2. Copy the `exec++` folder containing `exec++.dll` into the Notepad++ `plugins` directory. For an installed copy, the path is usually `C:\Program Files\Notepad++\plugins\exec++\exec++.dll`. For a portable copy, use the `plugins` folder next to `notepad++.exe`.
+3. Start 64-bit x64 Notepad++.
 
 ## Run a selection
 
-Paste and highlight these two lines, right-click the highlighted text, and choose **exec++**.
+Highlight a command and press **Ctrl+Shift+Enter** or right-click and choose **exec++**. Change the shortcut under **Settings → Shortcut Mapper → Plugin commands**. **Plugins → exec++ → Show Output** opens the pane so you can choose a shell and input mode before running.
+
+The shell picker offers **Windows PowerShell**, **PowerShell 7** (if installed), and **Command Prompt**. Each run starts a fresh shell in the active file’s folder when available. CMD accepts a single command line, which can chain commands with `&` or `&&`.
+
+| Input mode | Behavior |
+| --- | --- |
+| **Script (keep line breaks)** | Keeps the original line endings and indentation for PowerShell scripts. This is the default. |
+| **Join lines** | Turns a wrapped command into one line. Handles CRLF, LF, and CR. Removes PowerShell backtick and CMD caret continuations for their respective shells, as well as a pasted Bash-style space followed by a backslash at the end of a line. |
+| **Join lines + escaped breaks** | Also recognizes space-separated literal `\r\n`, `\n`, and `\r` outside quotes. Quoted JSON escapes and Windows paths are preserved. |
+
+Choose **exec++ (Join lines)** from the editor context menu to join a selection once without changing the saved mode. A break between arguments becomes a space. A break inside a quoted argument with no preceding space is removed, so a wrapped URL stays intact. Use Script mode when actual line breaks or indentation are part of the data.
+
+For example, select these lines, right-click, and choose **exec++ (Join lines)**.
 
 ```powershell
-Write-Output "Hello from exec++"
-Get-Date
+Write-Output
+    '{"status":"ok","items":[1,2]}'
 ```
 
-**Stop** ends the current run. **Plugins → exec++ → Show Output** reopens the pane. Each run starts a fresh Windows PowerShell session and uses the active file's folder when available. To run a Command Prompt built-in, select a PowerShell command such as `cmd.exe /c ver`.
+## Read the output
 
-The pane captures up to 1 MiB per run and supports selecting and copying the output. Commands run locally with your Windows account's permissions. Interactive prompts and persistent shell sessions are outside the scope of this version.
+The pane uses 11-point Consolas, follows Notepad++’s light or dark theme, and wraps long lines by default. Use **Find Next** or Enter in the search box, **Copy All** for the current view, and **Clear** to clear the display. The **Run history** dropdown holds the last ten results in memory and can restore a cleared result. **Stop** ends the active run.
+
+**View JSON** formats a complete JSON object or array, including the body of a `curl.exe -sS -i` response. **View Raw** restores the original output with its headers. Output is capped at 1 MiB per run. Shell, input mode, and word wrap are saved across restarts.
 
 ## Build from source
 
@@ -33,6 +45,6 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-The DLL is at `build\Release\exec++.dll`. The smoke test exercises the Windows PowerShell runner with a long Unicode selection, standard error, an explicit exit code, output limits, and cancellation.
+The DLL is at `build\Release\exec++.dll`. The smoke tests cover line joining, JSON formatting, shell output, exit codes, truncation, and cancellation. The PowerShell 7 test is enabled when CMake finds `pwsh`.
 
-The Notepad++ and Scintilla interface headers are vendored from the Notepad++ repository at commit `37482a9bf3efb2e38a6e6b4c8d759533a0b329dc`. See the root license and the Scintilla license in `vendor/scintilla`.
+The Notepad++ and Scintilla interface headers are vendored from the Notepad++ repository at commit `37482a9bf3efb2e38a6e6b4c8d759533a0b329dc`. Their license files are in `vendor`.

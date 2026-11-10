@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CommandText.h"
+
 #include <windows.h>
 #include <atomic>
 #include <cstddef>
@@ -20,13 +22,13 @@ class ProcessRun {
 public:
     static constexpr std::size_t outputLimit = 1024 * 1024;
 
-    ProcessRun(std::string script, std::wstring directory);
+    ProcessRun(std::string script, std::wstring directory, Shell shell = Shell::WindowsPowerShell);
     ~ProcessRun();
     void stop();
     RunUpdate takeUpdate();
 
 private:
-    void run(const std::string& script, const std::wstring& directory);
+    void run(const std::string& script, const std::wstring& directory, Shell shell);
     void appendOutput(const char* bytes, std::size_t count);
 
     std::atomic<bool> stopRequested_{false};
