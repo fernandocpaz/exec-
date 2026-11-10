@@ -5,7 +5,7 @@
 
 #include "PluginInterface.h"
 #include "Docking.h"
-#include "Process.h"
+#include "ProcessRun.h"
 
 #include <algorithm>
 #include <array>

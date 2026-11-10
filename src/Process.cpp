@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "Process.h"
+#include "ProcessRun.h"
 
 #include <algorithm>
 #include <array>
@@ -221,9 +221,9 @@ void ProcessRun::run(const std::string& script, const std::wstring& directory) {
         if (!PeekNamedPipe(output.read.get(), nullptr, 0, nullptr, &ready, nullptr) || ready == 0) {
             return false;
         }
+        const DWORD toRead = static_cast<DWORD>(std::min<std::size_t>(ready, bytes.size()));
         DWORD count = 0;
-        if (!ReadFile(output.read.get(), bytes.data(), std::min<DWORD>(ready, bytes.size()),
-                      &count, nullptr) || !count) {
+        if (!ReadFile(output.read.get(), bytes.data(), toRead, &count, nullptr) || !count) {
             return false;
         }
         truncated |= count > outputLimit - outputSize_;
