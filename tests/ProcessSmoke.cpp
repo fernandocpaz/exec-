@@ -2,6 +2,7 @@
 #include "ProcessRun.h"
 
 #include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 
@@ -59,6 +60,13 @@ void checkCommandText() {
             "A path ending in backslash should not be treated as a continuation");
     require(prepareCommand("one\r\ntwo", ps, InputMode::Script) == "one\r\ntwo",
             "Script mode must preserve original input");
+    const auto wsl = Shell::Wsl;
+    require(prepareCommand("one\r\ntwo\rthree\n", wsl, InputMode::Script) == "one\ntwo\nthree\n",
+            "WSL script mode must normalize Windows line endings");
+    require(prepareCommand("printf '%s' \"hel\\\r\nlo\"", wsl, join) == "printf '%s' \"hello\"",
+            "Bash continuations inside a quoted argument should join without spaces");
+    require(prepareCommand("printf '%s' \\\r\n  'hello'", wsl, join) == "printf '%s' 'hello'",
+            "Bash continuations between arguments should join with a space");
 
     const auto json = prettyJsonBody(L"HTTP/1.1 100 Continue\r\n\r\n"
                                     L"HTTP/2 200 OK\nContent-Type: application/json\n\n"
@@ -86,10 +94,34 @@ void checkPowerShell7() {
             "PowerShell 7 did not run the selection");
 }
 
+void checkWsl() {
+    const auto shell = Shell::Wsl;
+    const auto script = prepareCommand("#" + std::string(150000, 'x') +
+        "\r\ntest -f CMakeLists.txt || exit 98\r\nprintf 'hello, día 🌴\\n'\r\n"
+        "printf 'stderr marker\\n' >&2\r\nexit 27", shell, InputMode::Script);
+    ProcessRun wsl(script, std::filesystem::current_path().wstring(), shell);
+    const auto result = waitFor(wsl);
+    require(result.exitCode == 27 && result.output.find("hello, día 🌴") != std::string::npos &&
+                result.output.find("stderr marker") != std::string::npos,
+            "WSL did not preserve the directory, multiline input, Unicode, stderr, or exit status");
+
+    const auto marker = "/tmp/execpp-stop-" + std::to_string(GetCurrentProcessId());
+    ProcessRun slow("rm -f " + marker + "; (trap '' TERM; sleep 4; touch " + marker +
+                        ") & printf 'ready to stop\\n'; wait", {}, shell);
+    require(waitFor(slow, true).stopped, "Stop did not cancel the WSL run");
+
+    ProcessRun check("sleep 4; test ! -e " + marker, {}, shell);
+    require(waitFor(check).exitCode == 0, "A child of the stopped WSL command survived cancellation");
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
     try {
+        if (argc > 1 && std::string_view(argv[1]) == "--wsl") {
+            checkWsl();
+            return 0;
+        }
         if (argc > 1 && std::string_view(argv[1]) == "--pwsh") {
             checkPowerShell7();
             return 0;

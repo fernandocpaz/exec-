@@ -106,7 +106,7 @@ OutputPanel::OutputPanel(HWND host, HINSTANCE module, int dockCommand)
         preferences_ = std::wstring(folder.data()) + L"\\exec++.ini";
         const auto shell = GetPrivateProfileIntW(settingsSection, L"Shell", 0, preferences_.c_str());
         const auto input = GetPrivateProfileIntW(settingsSection, L"Input", 0, preferences_.c_str());
-        if (shell <= static_cast<UINT>(Shell::CommandPrompt)) {
+        if (shell <= static_cast<UINT>(Shell::Wsl)) {
             selectedShell_ = static_cast<Shell>(shell);
         }
         if (input <= static_cast<UINT>(InputMode::JoinEscapedLines)) {
@@ -255,7 +255,7 @@ bool OutputPanel::create() {
         SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), FALSE);
     }
 
-    for (const auto shell : {Shell::WindowsPowerShell, Shell::PowerShell7, Shell::CommandPrompt}) {
+    for (const auto shell : {Shell::WindowsPowerShell, Shell::PowerShell7, Shell::CommandPrompt, Shell::Wsl}) {
         addChoice(shell_, shellName(shell));
     }
     for (const auto* mode : {L"Script (keep line breaks)", L"Join lines", L"Join lines + escaped breaks"}) {

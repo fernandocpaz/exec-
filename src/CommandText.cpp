@@ -27,17 +27,24 @@ std::size_t breakSize(std::string_view text, std::size_t i, bool decodeEscapes) 
     return size;
 }
 
+bool isShellEscape(char marker, Shell shell, char quote) {
+    if (shell == Shell::CommandPrompt) {
+        return marker == '^' && !quote;
+    }
+    return marker == (shell == Shell::Wsl ? '\\' : '`') && quote != '\'';
+}
+
 bool removeContinuation(std::string& result, Shell shell, char quote) {
     if (result.empty()) {
         return false;
     }
     const char marker = result.back();
-    if (marker == '\\' && !quote && result.size() > 1 && horizontal(result[result.size() - 2])) {
+    if (shell != Shell::Wsl && marker == '\\' && !quote && result.size() > 1 &&
+        horizontal(result[result.size() - 2])) {
         result.pop_back();
         return true;
     }
-    const bool isCmd = shell == Shell::CommandPrompt;
-    if (!(isCmd ? marker == '^' && !quote : marker == '`' && quote != '\'')) {
+    if (!isShellEscape(marker, shell, quote)) {
         return false;
     }
     std::size_t start = result.size();
@@ -267,13 +274,26 @@ const wchar_t* shellName(Shell shell) {
     switch (shell) {
     case Shell::PowerShell7: return L"PowerShell 7";
     case Shell::CommandPrompt: return L"Command Prompt (CMD)";
+    case Shell::Wsl: return L"WSL (Bash)";
     default: return L"Windows PowerShell";
     }
 }
 
 std::string prepareCommand(std::string_view text, Shell shell, InputMode mode) {
     if (mode == InputMode::Script) {
-        return std::string(text);
+        if (shell != Shell::Wsl || text.find('\r') == std::string_view::npos) {
+            return std::string(text);
+        }
+        std::string unixText;
+        unixText.reserve(text.size());
+        for (std::size_t i = 0; i < text.size(); ++i) {
+            if (text[i] != '\r') {
+                unixText += text[i];
+            } else if (i + 1 == text.size() || text[i + 1] != '\n') {
+                unixText += '\n';
+            }
+        }
+        return unixText;
     }
     std::string result;
     result.reserve(text.size());
@@ -311,12 +331,11 @@ std::string prepareCommand(std::string_view text, Shell shell, InputMode mode) {
             escaped = false;
             continue;
         }
-        const bool cmd = shell == Shell::CommandPrompt;
-        if (cmd ? c == '^' && !quote : c == '`' && quote != '\'') {
+        if (isShellEscape(c, shell, quote)) {
             escaped = true;
         } else if (c == quote) {
             quote = '\0';
-        } else if (!quote && (c == '"' || (!cmd && c == '\''))) {
+        } else if (!quote && (c == '"' || (shell != Shell::CommandPrompt && c == '\''))) {
             quote = c;
         }
     }

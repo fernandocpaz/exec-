@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-param([Parameter(Mandatory)] [string] $Notepad, [Parameter(Mandatory)] [string] $Plugin)
+param([Parameter(Mandatory)] [string] $Notepad, [Parameter(Mandatory)] [string] $Plugin, [switch] $TestWsl)
 $ErrorActionPreference = 'Stop'
 
 Add-Type @'
@@ -123,6 +123,10 @@ $fixture = Join-Path $exe.DirectoryName 'execpp-smoke.ps1'
 $firstCommand = "Write-Output`r`n  '{`"items`":[1,2]}'"
 $secondCommand = "Write-Output 'second view marker'"
 $commands = $firstCommand + "`r`n" + $secondCommand
+$secondEnd = $commands.Length
+if ($TestWsl) {
+    $commands += "`r`ntest -f execpp-smoke.ps1 && printf 'WSL picker marker\n'"
+}
 [IO.File]::WriteAllText($fixture, $commands, [Text.UTF8Encoding]::new($false))
 $process = Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -PassThru -ArgumentList '-multiInst', '-nosession', "`"$fixture`""
 try {
@@ -172,7 +176,7 @@ try {
             Where-Object { $_ -ne $editor } |
             Select-Object -First 1
     } 'the second editor view'
-    [void] [NotepadTest]::Send($otherEditor, 2160, [IntPtr] ($firstCommand.Length + 2), [IntPtr] $commands.Length)
+    [void] [NotepadTest]::Send($otherEditor, 2160, [IntPtr] ($firstCommand.Length + 2), [IntPtr] $secondEnd)
     $run = Get-ContextCommand $otherEditor 'exec++' $true
     [void] [NotepadTest]::Post($notepadWindow, 0x0111, [IntPtr] $run, [IntPtr]::Zero)
     [void] (Wait-For {
@@ -186,6 +190,19 @@ try {
         if ([NotepadTest]::Text($output).Contains('{"items":[1,2]}')) { $true }
     } 'the previous run and its raw view from history')
     Write-Host 'Notepad++ editor menus, bottom docking, line joining, automatic JSON, and history passed.'
+    if ($TestWsl) {
+        $shell = [NotepadTest]::GetDlgItem($panel, 102)
+        [void] [NotepadTest]::Send($shell, 0x014E, [IntPtr] 3, [IntPtr]::Zero) # CB_SETCURSEL
+        [void] [NotepadTest]::Send($panel, 0x0111, [IntPtr] 65638, $shell) # CBN_SELCHANGE
+        [void] [NotepadTest]::Send($otherEditor, 2160, [IntPtr] ($secondEnd + 2), [IntPtr] $commands.Length)
+        $run = Get-ContextCommand $otherEditor 'exec++' $true
+        [void] [NotepadTest]::Post($notepadWindow, 0x0111, [IntPtr] $run, [IntPtr]::Zero)
+        [void] (Wait-For {
+            if ([NotepadTest]::Text($output).Contains('WSL picker marker') -and
+                [NotepadTest]::Text($status) -match 'Exit code: 0.*WSL \(Bash\)') { $true }
+        } 'Bash output after selecting WSL in the shell picker')
+        Write-Host 'WSL shell picker and active file directory passed.'
+    }
 } finally {
     if (!$process.HasExited) {
         [void] $process.CloseMainWindow()

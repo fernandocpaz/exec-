@@ -122,8 +122,88 @@ std::wstring shellPath(Shell shell) {
     if (!length || length >= MAX_PATH) {
         throw WindowsError{L"Could not find the Windows system directory"};
     }
-    return std::wstring(systemDirectory, length) +
-           (shell == Shell::CommandPrompt ? L"\\cmd.exe" : L"\\WindowsPowerShell\\v1.0\\powershell.exe");
+    const std::wstring systemPath(systemDirectory, length);
+    if (shell == Shell::Wsl) {
+        const auto wsl = systemPath + L"\\wsl.exe";
+        if (GetFileAttributesW(wsl.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            throw L"WSL was not found. Install WSL and a Linux distribution with Bash.";
+        }
+        return wsl;
+    }
+    return systemPath + (shell == Shell::CommandPrompt ? L"\\cmd.exe" : L"\\WindowsPowerShell\\v1.0\\powershell.exe");
+}
+
+std::wstring wslEnvironment() {
+    std::unique_ptr<wchar_t, decltype(&FreeEnvironmentStringsW)> source(GetEnvironmentStringsW(), FreeEnvironmentStringsW);
+    if (!source) {
+        throw WindowsError{L"Could not read the environment for WSL"};
+    }
+    // wsl.exe emits UTF-16 diagnostics by default. Use UTF-8 for this child only.
+    constexpr std::wstring_view setting = L"WSL_UTF8";
+    constexpr wchar_t utf8[] = L"WSL_UTF8=1";
+    std::wstring environment;
+    bool added = false;
+    for (const wchar_t* current = source.get(); *current;) {
+        const std::wstring_view entry(current);
+        const auto name = entry.substr(0, entry.find(L'=', 1));
+        const int order = CompareStringOrdinal(name.data(), static_cast<int>(name.size()),
+                                               setting.data(), static_cast<int>(setting.size()), TRUE);
+        if (!added && order >= CSTR_EQUAL) {
+            environment.append(utf8, std::size(utf8));
+            added = true;
+        }
+        if (order != CSTR_EQUAL) {
+            environment.append(current, entry.size() + 1);
+        }
+        current += entry.size() + 1;
+    }
+    if (!added) {
+        environment.append(utf8, std::size(utf8));
+    }
+    environment += L'\0';
+    return environment;
+}
+
+std::wstring quoteWindowsArgument(std::wstring_view argument) {
+    std::wstring quoted = L"\"";
+    std::size_t backslashes = 0;
+    for (const wchar_t character : argument) {
+        if (character == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        quoted.append(character == L'"' ? backslashes * 2 + 1 : backslashes, L'\\');
+        quoted += character;
+        backslashes = 0;
+    }
+    quoted.append(backslashes * 2, L'\\');
+    quoted += L'"';
+    return quoted;
+}
+
+std::wstring wslDirectoryArguments(std::wstring_view directory) {
+    if (directory.empty()) {
+        return L" --cd ~";
+    }
+    // The process working directory is enough for Windows drive paths. For WSL
+    // UNC paths, select the owning distro and give it the native Linux path.
+    for (const auto prefix : {std::wstring_view(L"\\\\wsl$\\"), std::wstring_view(L"\\\\wsl.localhost\\")}) {
+        if (directory.size() <= prefix.size() ||
+            CompareStringOrdinal(directory.data(), static_cast<int>(prefix.size()),
+                                 prefix.data(), static_cast<int>(prefix.size()), TRUE) != CSTR_EQUAL) {
+            continue;
+        }
+        const auto path = directory.substr(prefix.size());
+        const auto separator = path.find(L'\\');
+        const auto distro = path.substr(0, separator);
+        if (distro.empty()) {
+            break;
+        }
+        auto linuxPath = separator == std::wstring_view::npos ? std::wstring(L"/") : std::wstring(path.substr(separator));
+        std::replace(linuxPath.begin(), linuxPath.end(), L'\\', L'/');
+        return L" --distribution " + quoteWindowsArgument(distro) + L" --cd " + quoteWindowsArgument(linuxPath);
+    }
+    return {};
 }
 
 // The source goes over stdin so quotes and multiline selections reach PowerShell verbatim.
@@ -143,8 +223,39 @@ constexpr wchar_t shellArguments[] =
     L"if ($?) { exit 0 }; if ($LASTEXITCODE) { exit $LASTEXITCODE }; exit 1 } "
     L"catch { [Console]::Error.WriteLine(($_ | Out-String).TrimEnd()); exit 1 }\"";
 
-std::wstring buildCommandLine(const std::wstring& executable, const std::string& script, Shell shell) {
+// The writer sends exactly $1 bytes. The open pipe then keeps the watcher alive.
+// On EOF the watcher signals the script's Linux process group, including children.
+constexpr wchar_t wslLauncher[] = LR"bash(
+LC_ALL=C IFS= read -r -N "$1" execpp_script || exit 1
+set -m
+(
+    set +m
+    set --
+    eval "$execpp_script"
+) </dev/null &
+script_pid=$!
+(
+    IFS= read -r unused
+    kill -TERM -- "-$script_pid" 2>/dev/null || exit 0
+    sleep 0.2
+    kill -KILL -- "-$script_pid" 2>/dev/null || :
+) <&0 &
+watcher_pid=$!
+wait "$script_pid" 2>/dev/null
+status=$?
+kill "$watcher_pid" 2>/dev/null || :
+wait "$watcher_pid" 2>/dev/null || :
+kill -KILL -- "-$script_pid" 2>/dev/null || :
+exit "$status"
+)bash";
+
+std::wstring buildCommandLine(const std::wstring& executable, const std::string& script,
+                              const std::wstring& directory, Shell shell) {
     auto commandLine = L"\"" + executable + L"\"";
+    if (shell == Shell::Wsl) {
+        return commandLine + wslDirectoryArguments(directory) + L" --exec bash -c " +
+               quoteWindowsArgument(wslLauncher) + L" execpp " + std::to_wstring(script.size());
+    }
     if (shell != Shell::CommandPrompt) {
         return commandLine + shellArguments;
     }
@@ -218,12 +329,22 @@ void ProcessRun::run(const std::string& script, const std::wstring& directory, S
     }
 
     const std::wstring executable = shellPath(shell);
-    std::wstring commandLine = buildCommandLine(executable, script, shell);
+    std::wstring commandLine = buildCommandLine(executable, script, directory, shell);
+    auto environment = shell == Shell::Wsl ? wslEnvironment() : std::wstring();
     auto input = createPipe();
     auto output = createPipe();
     if (!SetHandleInformation(input.write.get(), HANDLE_FLAG_INHERIT, 0) ||
         !SetHandleInformation(output.read.get(), HANDLE_FLAG_INHERIT, 0)) {
         throw WindowsError{L"Could not configure shell pipes"};
+    }
+    Handle wslControl;
+    if (shell == Shell::Wsl) {
+        const HANDLE self = GetCurrentProcess();
+        HANDLE control = nullptr;
+        if (!DuplicateHandle(self, input.write.get(), self, &control, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+            throw WindowsError{L"Could not create the WSL cancellation pipe"};
+        }
+        wslControl.reset(control);
     }
 
     Handle job(CreateJobObjectW(nullptr, nullptr));
@@ -247,8 +368,8 @@ void ProcessRun::run(const std::string& script, const std::wstring& directory, S
     startup.lpAttributeList = inherited.get();
     PROCESS_INFORMATION child{};
     if (!CreateProcessW(executable.c_str(), commandLine.data(), nullptr, nullptr, TRUE,
-                        CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
-                        nullptr, directory.empty() ? nullptr : directory.c_str(),
+                        CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                        environment.empty() ? nullptr : environment.data(), directory.empty() ? nullptr : directory.c_str(),
                         &startup.StartupInfo, &child)) {
         throw WindowsError{L"Could not start the selected shell"};
     }
@@ -266,14 +387,14 @@ void ProcessRun::run(const std::string& script, const std::wstring& directory, S
         throw WindowsError{L"Could not resume the selected shell"};
     }
 
-    // PowerShell can emit startup errors before it reads stdin. Read and write concurrently.
+    // The shell can emit startup errors before it reads stdin. Read and write concurrently.
     std::thread writer;
     if (shell == Shell::CommandPrompt) {
         input.write.reset();
     } else {
-        writer = std::thread([&script, pipe = std::move(input.write)] {
+        writer = std::thread([this, &script, shell, pipe = std::move(input.write)] {
             std::size_t offset = 0;
-            while (offset < script.size()) {
+            while (offset < script.size() && !(shell == Shell::Wsl && stopRequested_)) {
                 const DWORD count = static_cast<DWORD>(std::min<std::size_t>(65536, script.size() - offset));
                 DWORD written = 0;
                 if (!WriteFile(pipe.get(), script.data() + offset, count, &written, nullptr) || !written) {
@@ -285,6 +406,7 @@ void ProcessRun::run(const std::string& script, const std::wstring& directory, S
     }
 
     bool stopped = false;
+    ULONGLONG stopDeadline = 0;
     bool truncated = false;
     DWORD exitCode = 0;
     std::array<char, 8192> bytes{};
@@ -305,8 +427,15 @@ void ProcessRun::run(const std::string& script, const std::wstring& directory, S
 
     try {
         for (;;) {
-            if (stopRequested_) {
+            if (stopRequested_ && !stopped) {
                 stopped = true;
+                if (shell != Shell::Wsl) {
+                    break;
+                }
+                wslControl.reset();
+                stopDeadline = GetTickCount64() + 1500;
+            }
+            if (stopped && GetTickCount64() >= stopDeadline) {
                 break;
             }
             const DWORD state = WaitForSingleObject(process.get(), 0);
@@ -330,6 +459,7 @@ void ProcessRun::run(const std::string& script, const std::wstring& directory, S
             throw WindowsError{L"Could not read the shell exit code"};
         }
     } catch (...) {
+        wslControl.reset();
         job.reset();
         if (writer.joinable()) {
             writer.join();

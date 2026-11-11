@@ -5,7 +5,7 @@
 #include <string>
 #include <string_view>
 
-enum class Shell { WindowsPowerShell, PowerShell7, CommandPrompt };
+enum class Shell { WindowsPowerShell, PowerShell7, CommandPrompt, Wsl };
 enum class InputMode { Script, JoinLines, JoinEscapedLines };
 
 const wchar_t* shellName(Shell shell);
