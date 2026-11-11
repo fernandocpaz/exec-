@@ -34,7 +34,9 @@ Write-Output
 
 ## Read the output
 
-The pane uses 11-point Consolas, follows Notepad++’s light or dark theme, and wraps long lines by default. Use **Find Next** or Enter in the search box, **Copy All** for the current view, and **Clear** to clear the display. The **Run history** dropdown holds the last ten results in memory and can restore a cleared result. **Stop** ends the active run.
+The pane uses 11-point Consolas, follows Notepad++’s light or dark theme, and wraps long lines by default. Use **Find Next** or Enter in the search box, **Copy All** for the current view, and **Clear** to clear the display. **Stop** ends the active run.
+
+The **Run history** dropdown holds the last ten results in memory and can restore a cleared result. Entries start with the command name, such as `curl.exe` or `Write-Output`. **Clear History** empties the dropdown while keeping the output currently on screen.
 
 When a run finishes, exec++ automatically formats a complete JSON object or array, including the body of a `curl.exe -sS -i` response or a JSON string that contains an object or array. **View Raw** restores the original output with its headers. Plain text and mixed output stay raw. Output is capped at 1 MiB per run. Shell, input mode, and word wrap are saved across restarts.
 

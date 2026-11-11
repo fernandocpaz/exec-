@@ -10,4 +10,5 @@ enum class InputMode { Script, JoinLines, JoinEscapedLines };
 
 const wchar_t* shellName(Shell shell);
 std::string prepareCommand(std::string_view text, Shell shell, InputMode mode);
+std::string_view commandName(std::string_view script, Shell shell);
 std::optional<std::wstring> prettyJsonBody(std::wstring_view output);

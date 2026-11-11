@@ -68,6 +68,20 @@ void checkCommandText() {
     require(prepareCommand("printf '%s' \\\r\n  'hello'", wsl, join) == "printf '%s' 'hello'",
             "Bash continuations between arguments should join with a space");
 
+    require(commandName("\r\n  curl.exe -u user:secret", ps) == "curl.exe" &&
+                commandName("kubectl|get", wsl) == "kubectl" &&
+                commandName("@echo secret", cmd) == "echo",
+            "History should show the command name without arguments or operators");
+    require(commandName(R"(& 'C:\Program Files\Tools\app.exe' secret)", ps) == "app.exe" &&
+                commandName(R"("C:\Program Files\Tools\app.exe" secret)", cmd) == "app.exe" &&
+                commandName("#!/bin/bash\n# setup\n  '/opt/my tools/script.sh' secret", wsl) == "script.sh",
+            "History should handle quoted executable paths and skip leading script comments");
+    require(commandName("# comment only", ps).empty() &&
+                commandName("$token = 'secret'", ps).empty() &&
+                commandName("'secret'", ps).empty() &&
+                commandName("TOKEN=secret", wsl).empty(),
+            "Non-command selections should use the generic history label");
+
     const auto json = prettyJsonBody(L"HTTP/1.1 100 Continue\r\n\r\n"
                                     L"HTTP/2 200 OK\nContent-Type: application/json\n\n"
                                     L"{\"a\":[1,true,\"x\\n\"],\"a\":-5e+2}\r\n");

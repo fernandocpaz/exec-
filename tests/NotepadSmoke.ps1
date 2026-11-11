@@ -24,6 +24,7 @@ public static class NotepadTest {
     [DllImport("user32")] private static extern bool EnumChildWindows(IntPtr parent, EnumProc proc, IntPtr param);
     [DllImport("user32")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
     [DllImport("user32")] private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32")] public static extern bool IsWindowEnabled(IntPtr window);
     [DllImport("user32", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr window, StringBuilder text, int capacity);
     [DllImport("user32", CharSet = CharSet.Unicode)]
@@ -121,7 +122,7 @@ $pluginFolder = Join-Path $exe.DirectoryName 'plugins/exec++'
 Copy-Item -LiteralPath $Plugin -Destination (Join-Path $pluginFolder 'exec++.dll')
 $fixture = Join-Path $exe.DirectoryName 'execpp-smoke.ps1'
 $firstCommand = "Write-Output`r`n  '{`"items`":[1,2]}'"
-$secondCommand = "Write-Output 'second view marker'"
+$secondCommand = "echo 'second view marker'"
 $commands = $firstCommand + "`r`n" + $secondCommand
 $secondEnd = $commands.Length
 if ($TestWsl) {
@@ -184,12 +185,41 @@ try {
             [NotepadTest]::Text($status).Contains('Exit code: 0')) { $true }
     } 'output from the second editor view')
     $history = [NotepadTest]::GetDlgItem($panel, 104)
+    $clearDisplay = [NotepadTest]::GetDlgItem($panel, 110)
+    $clearHistory = [NotepadTest]::GetDlgItem($panel, 112)
+    if ([NotepadTest]::Text($history) -notmatch '^echo  #2 ') {
+        throw 'The newest history entry does not begin with the executed command name.'
+    }
+    [void] [NotepadTest]::Send($clearDisplay, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) # BM_CLICK
+    if ([NotepadTest]::Text($output) -or [NotepadTest]::Send($history, 0x0146, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32() -ne 3) { # CB_GETCOUNT
+        throw 'Clear should empty the output display and leave both history entries available.'
+    }
     [void] [NotepadTest]::Send($history, 0x014E, [IntPtr] 2, [IntPtr]::Zero) # CB_SETCURSEL
     [void] [NotepadTest]::Send($panel, 0x0111, [IntPtr] 65640, $history) # CBN_SELCHANGE
     [void] (Wait-For {
-        if ([NotepadTest]::Text($output).Contains('{"items":[1,2]}')) { $true }
+        if ([NotepadTest]::Text($output).Contains('{"items":[1,2]}') -and
+            [NotepadTest]::Text($history) -match '^Write-Output  #1 ') { $true }
     } 'the previous run and its raw view from history')
-    Write-Host 'Notepad++ editor menus, bottom docking, line joining, automatic JSON, and history passed.'
+    [void] [NotepadTest]::Send($clearHistory, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    if ([NotepadTest]::Send($history, 0x0146, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32() -ne 1 -or
+        [NotepadTest]::Text($history) -ne 'Run history' -or
+        [NotepadTest]::IsWindowEnabled($history) -or [NotepadTest]::IsWindowEnabled($clearHistory) -or
+        ![NotepadTest]::Text($output).Contains('{"items":[1,2]}')) {
+        throw 'Clear History should remove saved runs and keep the displayed output.'
+    }
+    [void] [NotepadTest]::Send($json, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    if (![NotepadTest]::Text($output).Contains('  "items": [')) {
+        throw 'The retained output should still support its JSON view.'
+    }
+    [void] [NotepadTest]::Send($clearDisplay, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    if ([NotepadTest]::Text($output)) { throw 'Clear should empty the retained output.' }
+    [void] [NotepadTest]::Post($notepadWindow, 0x0111, [IntPtr] $run, [IntPtr]::Zero)
+    [void] (Wait-For {
+        if ([NotepadTest]::IsWindowEnabled($clearHistory) -and
+            [NotepadTest]::Send($history, 0x0146, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32() -eq 2 -and
+            [NotepadTest]::Text($history) -match '^echo  #3 ') { $true }
+    } 'a new run as the only history entry')
+    Write-Host 'Notepad++ editor menus, bottom docking, line joining, automatic JSON, and run history passed.'
     if ($TestWsl) {
         $shell = [NotepadTest]::GetDlgItem($panel, 102)
         [void] [NotepadTest]::Send($shell, 0x014E, [IntPtr] 3, [IntPtr]::Zero) # CB_SETCURSEL

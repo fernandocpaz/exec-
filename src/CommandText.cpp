@@ -346,6 +346,63 @@ std::string prepareCommand(std::string_view text, Shell shell, InputMode mode) {
     return result.substr(start, result.find_last_not_of(" \t") - start + 1);
 }
 
+std::string_view commandName(std::string_view script, Shell shell) {
+    const bool cmd = shell == Shell::CommandPrompt;
+    const bool powershell = !cmd && shell != Shell::Wsl;
+    for (;;) {
+        const auto start = script.find_first_not_of(" \t\r\n");
+        if (start == std::string_view::npos) {
+            return {};
+        }
+        script.remove_prefix(start);
+        if (cmd ? script.substr(0, 2) != "::" : script.front() != '#') {
+            break;
+        }
+        const auto end = script.find_first_of("\r\n");
+        if (end == std::string_view::npos) {
+            return {};
+        }
+        script.remove_prefix(end);
+    }
+
+    const bool invocation = powershell && (script.front() == '&' ||
+        (script.front() == '.' && script.size() > 1 && horizontal(script[1])));
+    if (invocation || (cmd && script.front() == '@')) {
+        const auto start = script.find_first_not_of(" \t", 1);
+        if (start == std::string_view::npos) {
+            return {};
+        }
+        script.remove_prefix(start);
+    }
+
+    auto name = script.substr(0, script.find_first_of("\r\n"));
+    if (name.empty() || (powershell && name.find_first_of("$[{@") == 0) ||
+        (shell == Shell::Wsl && name.front() == '$')) {
+        return {};
+    }
+    if (name.front() == '"' || (!cmd && name.front() == '\'')) {
+        if (powershell && !invocation) {
+            return {}; // A leading quoted string is an expression in PowerShell.
+        }
+        const auto end = name.find(name.front(), 1);
+        if (end == std::string_view::npos) {
+            return {};
+        }
+        name = name.substr(1, end - 1);
+    } else {
+        const auto end = name.find_first_of(" \t;&|<>()=\"'");
+        if (end != std::string_view::npos && name[end] == '=') {
+            return {}; // An assignment is not a command name.
+        }
+        name = name.substr(0, end);
+    }
+    const auto separator = name.find_last_of(shell == Shell::Wsl ? "/" : "/\\");
+    if (separator != std::string_view::npos) {
+        name.remove_prefix(separator + 1);
+    }
+    return name;
+}
+
 std::optional<std::wstring> prettyJsonBody(std::wstring_view output) {
     if (!output.empty() && output.front() == L'\uFEFF') {
         output.remove_prefix(1);

@@ -34,6 +34,7 @@ private:
     void poll();
     void selectResult(int index, bool keepRawOutput = false);
     void showResult(bool keepRawOutput = false);
+    Result* displayedResult();
     void refreshHistory();
     void findNext() const;
     void copyAll() const;
@@ -49,6 +50,7 @@ private:
     HWND shell_ = nullptr;
     HWND input_ = nullptr;
     HWND history_ = nullptr;
+    HWND clearHistory_ = nullptr;
     HWND search_ = nullptr;
     HWND find_ = nullptr;
     HWND wrap_ = nullptr;
@@ -67,6 +69,7 @@ private:
     std::string pendingBytes_;
     Result current_;
     std::deque<Result> results_;
+    std::optional<Result> displayedAfterClear_;
     std::size_t runNumber_ = 0;
     int selectedResult_ = -1;
     std::optional<std::wstring> selectedJson_;
