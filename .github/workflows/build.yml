@@ -21,10 +21,10 @@ jobs:
         run: cmake --build build --config Release
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
-      - name: Set up Ubuntu for the WSL smoke test
+      - name: Set up Debian for the WSL smoke test
         uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
         with:
-          distribution: Ubuntu-24.04
+          distribution: Debian-11
           wsl-version: 2
           set-as-default: 'true'
       - name: Smoke test WSL
