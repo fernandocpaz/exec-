@@ -24,7 +24,7 @@ constexpr std::size_t historyLimit = 10;
 
 enum ControlId {
     stopButton = 101, shellPicker, inputPicker, historyPicker, searchBox,
-    findButton, wrapButton, jsonButton, copyButton, clearButton, outputBox
+    findButton, wrapButton, jsonButton, copyButton, clearButton, outputBox, clearHistoryButton
 };
 
 struct ThemeColors {
@@ -141,6 +141,16 @@ void OutputPanel::start(std::string selection, std::wstring directory, bool join
         SetWindowTextW(status_, L"Select a command with text to run.");
         return;
     }
+    const auto name = commandName(script, selectedShell_);
+    auto title = name.empty() ? std::wstring(L"Script") : toWide(name, CP_UTF8);
+    constexpr std::size_t titleLimit = 80;
+    if (title.size() > titleLimit) {
+        title.resize(titleLimit - 1);
+        if (IS_HIGH_SURROGATE(title.back())) {
+            title.pop_back();
+        }
+        title += L'\u2026';
+    }
     if (!SetTimer(hwnd_, pollTimer, 50, nullptr)) {
         SetWindowTextW(status_, L"Could not start the output timer.");
         return;
@@ -154,8 +164,10 @@ void OutputPanel::start(std::string selection, std::wstring directory, bool join
     }
 
     current_ = {};
+    current_.title = std::move(title);
     pendingBytes_.clear();
     selectedJson_.reset();
+    displayedAfterClear_.reset();
     stopping_ = false;
     selectedResult_ = -1;
     started_ = std::chrono::steady_clock::now();
@@ -163,7 +175,7 @@ void OutputPanel::start(std::string selection, std::wstring directory, bool join
     SetWindowTextW(json_, L"View JSON");
     SetWindowTextW(status_, (std::wstring(L"Running in ") + shellName(selectedShell_) + L" ...").c_str());
     SendMessageW(history_, CB_SETCURSEL, 0, 0);
-    for (HWND control : {history_, shell_, input_, json_, clear_}) {
+    for (HWND control : {history_, clearHistory_, shell_, input_, json_, clear_}) {
         EnableWindow(control, FALSE);
     }
     EnableWindow(stop_, TRUE);
@@ -237,6 +249,7 @@ bool OutputPanel::create() {
     shell_ = make(L"COMBOBOX", L"", shellPicker, comboStyle);
     input_ = make(L"COMBOBOX", L"", inputPicker, comboStyle);
     history_ = make(L"COMBOBOX", L"", historyPicker, comboStyle | WS_DISABLED);
+    clearHistory_ = make(L"BUTTON", L"Clear History", clearHistoryButton, WS_TABSTOP | WS_DISABLED);
     search_ = make(L"EDIT", L"", searchBox, WS_TABSTOP | ES_AUTOHSCROLL, WS_EX_CLIENTEDGE);
     find_ = make(L"BUTTON", L"Find Next", findButton, WS_TABSTOP);
     wrap_ = make(L"BUTTON", L"Wrap", wrapButton, WS_TABSTOP | BS_AUTOCHECKBOX);
@@ -247,7 +260,8 @@ bool OutputPanel::create() {
                     ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_READONLY | ES_NOHIDESEL,
                     WS_EX_CLIENTEDGE);
 
-    for (HWND control : {status_, stop_, shell_, input_, history_, search_, find_, wrap_, json_, copy_, clear_, output_}) {
+    for (HWND control : {status_, stop_, shell_, input_, history_, clearHistory_, search_, find_,
+                         wrap_, json_, copy_, clear_, output_}) {
         if (!control) {
             DestroyWindow(hwnd_);
             return false;
@@ -327,16 +341,18 @@ void OutputPanel::layout(HWND hwnd) const {
     place(status_, gap, gap + scale(3), width - stopWidth - gap);
     place(stop_, gap + std::max(0, width - stopWidth), gap, stopWidth);
 
-    const int pickerSpace = std::max(0, width - 2 * gap);
+    const int clearHistoryWidth = scale(96);
+    const int pickerSpace = std::max(0, width - clearHistoryWidth - 3 * gap);
     const int shellWidth = std::min(scale(185), pickerSpace / 3);
     const int inputWidth = std::min(scale(220), pickerSpace / 3 + gap);
     place(shell_, gap, gap + row, shellWidth, scale(210));
     place(input_, 2 * gap + shellWidth, gap + row, inputWidth, scale(210));
     place(history_, 3 * gap + shellWidth + inputWidth, gap + row,
           pickerSpace - shellWidth - inputWidth, scale(260));
+    place(clearHistory_, gap + std::max(0, width - clearHistoryWidth), gap + row, clearHistoryWidth);
     SendMessageW(shell_, CB_SETDROPPEDWIDTH, scale(185), 0);
     SendMessageW(input_, CB_SETDROPPEDWIDTH, scale(225), 0);
-    SendMessageW(history_, CB_SETDROPPEDWIDTH, scale(255), 0);
+    SendMessageW(history_, CB_SETDROPPEDWIDTH, scale(450), 0);
 
     int y = gap + 2 * row;
     const int findWidth = scale(78);
@@ -397,9 +413,8 @@ void OutputPanel::command(int id, int event) {
         savePreferences();
         break;
     case jsonButton:
-        if (selectedJson_) {
-            auto& result = results_[selectedResult_];
-            result.preferJson = !result.preferJson;
+        if (auto* result = displayedResult(); result && selectedJson_) {
+            result->preferJson = !result->preferJson;
             showResult();
         }
         break;
@@ -410,6 +425,16 @@ void OutputPanel::command(int id, int event) {
         if (!run_) {
             SendMessageW(history_, CB_SETCURSEL, 0, 0);
             selectResult(-1);
+        }
+        break;
+    case clearHistoryButton:
+        if (!run_ && !results_.empty()) {
+            if (selectedResult_ >= 0) {
+                displayedAfterClear_ = std::move(results_[selectedResult_]);
+            }
+            results_.clear();
+            selectedResult_ = -1;
+            refreshHistory();
         }
         break;
     }
@@ -477,8 +502,8 @@ void OutputPanel::poll() {
 
     current_.truncated = update.truncated;
     current_.status = result + L"  |  " + elapsed + L"  |  " + shellName(selectedShell_);
-    current_.title = L"#" + std::to_wstring(++runNumber_) + L"  " + shellName(selectedShell_) +
-                     L"  -  " + result + L" (" + elapsed + L")";
+    current_.title += L"  #" + std::to_wstring(++runNumber_) + L"  " + shellName(selectedShell_) +
+                      L"  -  " + result + L" (" + elapsed + L")";
     results_.push_front(std::move(current_));
     if (results_.size() > historyLimit) {
         results_.pop_back();
@@ -494,6 +519,7 @@ void OutputPanel::poll() {
 
 void OutputPanel::selectResult(int index, bool keepRawOutput) {
     selectedJson_.reset();
+    displayedAfterClear_.reset();
     selectedResult_ = index >= 0 && static_cast<std::size_t>(index) < results_.size() ? index : -1;
     if (selectedResult_ >= 0) {
         const auto& result = results_[selectedResult_];
@@ -504,8 +530,16 @@ void OutputPanel::selectResult(int index, bool keepRawOutput) {
     showResult(keepRawOutput);
 }
 
+OutputPanel::Result* OutputPanel::displayedResult() {
+    if (selectedResult_ >= 0) {
+        return &results_[selectedResult_];
+    }
+    return displayedAfterClear_ ? &*displayedAfterClear_ : nullptr;
+}
+
 void OutputPanel::showResult(bool keepRawOutput) {
-    if (selectedResult_ < 0) {
+    const auto* result = displayedResult();
+    if (!result) {
         SetWindowTextW(output_, L"");
         SetWindowTextW(status_, L"Select text in the editor and choose exec++.");
         SetWindowTextW(json_, L"View JSON");
@@ -513,14 +547,13 @@ void OutputPanel::showResult(bool keepRawOutput) {
         EnableWindow(json_, FALSE);
         return;
     }
-    const auto& result = results_[selectedResult_];
-    const bool showJson = result.preferJson && selectedJson_.has_value();
+    const bool showJson = result->preferJson && selectedJson_.has_value();
     if (showJson) {
         SetWindowTextW(output_, selectedJson_->c_str());
     } else if (!keepRawOutput) {
-        SetWindowTextW(output_, result.output.c_str());
+        SetWindowTextW(output_, result->output.c_str());
     }
-    const auto status = showJson ? result.status + L"  |  JSON body" : result.status;
+    const auto status = showJson ? result->status + L"  |  JSON body" : result->status;
     SetWindowTextW(status_, status.c_str());
     SetWindowTextW(json_, showJson ? L"View Raw" : L"View JSON");
     EnableWindow(clear_, TRUE);
@@ -535,6 +568,7 @@ void OutputPanel::refreshHistory() {
     }
     SendMessageW(history_, CB_SETCURSEL, selectedResult_ + 1, 0);
     EnableWindow(history_, !results_.empty());
+    EnableWindow(clearHistory_, !results_.empty());
 }
 
 void OutputPanel::findNext() const {

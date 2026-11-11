@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(exec-plus-plus VERSION 0.4.0 LANGUAGES CXX)
+project(exec-plus-plus VERSION 0.5.0 LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "exec++ targets Windows. Use a Windows compiler or a Windows cross-toolchain.")
