@@ -8,6 +8,7 @@
 
 #include <array>
 #include <climits>
+#include <optional>
 #include <string>
 
 namespace {
@@ -16,11 +17,13 @@ constexpr wchar_t pluginName[] = L"exec++";
 constexpr int runCommand = 0;
 constexpr int showOutputCommand = 1;
 constexpr int oneLineCommand = 2;
+constexpr int powerShellCommand = 3;
 constexpr UINT_PTR editorMenuHook = 1;
 
 void runSelection();
 void showOutput();
 void runOneLine();
+void runPowerShell();
 
 NppData npp;
 HINSTANCE module = nullptr;
@@ -28,7 +31,8 @@ ShortcutKey runShortcut{true, false, true, VK_RETURN};
 FuncItem commands[] = {
     {L"exec++", runSelection, 0, false, &runShortcut},
     {L"Show Output", showOutput},
-    {L"Run as One Line", runOneLine}
+    {L"Run as One Line", runOneLine},
+    {L"Run in Windows PowerShell", runPowerShell}
 };
 HWND pendingEditorPopup = nullptr;
 
@@ -68,6 +72,7 @@ LRESULT CALLBACK mainSubclass(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
         const HMENU popup = reinterpret_cast<HMENU>(wParam);
         const UINT state = hasSelection(pendingEditorPopup) ? MF_ENABLED : MF_GRAYED;
         pendingEditorPopup = nullptr;
+        addPopupCommand(popup, powerShellCommand, L"exec++ (Windows PowerShell)", state);
         addPopupCommand(popup, oneLineCommand, L"exec++ (Join lines)", state);
         addPopupCommand(popup, runCommand, pluginName, state);
     } else if (message == WM_NCDESTROY) {
@@ -108,7 +113,7 @@ void showOutput() {
     showMessage(L"Could not open the exec++ output pane.");
 }
 
-void executeSelection(bool joinLines) {
+void executeSelection(bool joinLines, std::optional<Shell> shellOverride = std::nullopt) {
     const HWND editor = currentEditor();
     if (!hasSelection(editor)) {
         showMessage(L"Highlight a command first.");
@@ -145,7 +150,7 @@ void executeSelection(bool joinLines) {
             showMessage(L"Could not open the exec++ output pane.");
             return;
         }
-        panel->start(std::move(selected), workingDirectory(), joinLines);
+        panel->start(std::move(selected), workingDirectory(), joinLines, shellOverride);
     } catch (...) {
         showMessage(L"Could not run the selected text.");
     }
@@ -153,6 +158,7 @@ void executeSelection(bool joinLines) {
 
 void runSelection() { executeSelection(false); }
 void runOneLine() { executeSelection(true); }
+void runPowerShell() { executeSelection(false, Shell::WindowsPowerShell); }
 
 } // namespace
 

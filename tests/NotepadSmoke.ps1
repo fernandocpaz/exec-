@@ -125,6 +125,9 @@ $firstCommand = "Write-Output`r`n  '{`"items`":[1,2]}'"
 $secondCommand = "echo 'second view marker'"
 $commands = $firstCommand + "`r`n" + $secondCommand
 $secondEnd = $commands.Length
+$powerShellCommand = '$exp = 1794496204; $iat = 1794495304; ($exp - $iat) / 60  # 15 minutes'
+$commands += "`r`n" + $powerShellCommand
+$powerShellEnd = $commands.Length
 if ($TestWsl) {
     $commands += "`r`ntest -f execpp-smoke.ps1 && printf 'WSL picker marker\n'"
 }
@@ -142,6 +145,7 @@ try {
         [NotepadTest]::Windows($notepadWindow, $process.Id, 'Scintilla') | Select-Object -First 1
     } 'the main editor'
     [void] (Get-ContextCommand $editor 'exec++' $false)
+    [void] (Get-ContextCommand $editor 'exec++ (Windows PowerShell)' $false)
     [void] [NotepadTest]::Send($editor, 2160, [IntPtr]::Zero, [IntPtr] $firstCommand.Length) # SCI_SETSEL
     $join = Get-ContextCommand $editor 'exec++ (Join lines)' $true
     [void] [NotepadTest]::Post($notepadWindow, 0x0111, [IntPtr] $join, [IntPtr]::Zero) # WM_COMMAND
@@ -220,11 +224,25 @@ try {
             [NotepadTest]::Text($history) -match '^echo  #3 ') { $true }
     } 'a new run as the only history entry')
     Write-Host 'Notepad++ editor menus, bottom docking, line joining, automatic JSON, and run history passed.'
+
+    $shell = [NotepadTest]::GetDlgItem($panel, 102)
+    $shellIndex = if ($TestWsl) { 3 } else { 2 } # WSL or CMD
+    [void] [NotepadTest]::Send($shell, 0x014E, [IntPtr] $shellIndex, [IntPtr]::Zero) # CB_SETCURSEL
+    [void] [NotepadTest]::Send($panel, 0x0111, [IntPtr] 65638, $shell) # CBN_SELCHANGE
+    [void] [NotepadTest]::Send($otherEditor, 2160, [IntPtr] ($secondEnd + 2), [IntPtr] $powerShellEnd)
+    $runPowerShell = Get-ContextCommand $otherEditor 'exec++ (Windows PowerShell)' $true
+    [void] [NotepadTest]::Post($notepadWindow, 0x0111, [IntPtr] $runPowerShell, [IntPtr]::Zero)
+    [void] (Wait-For {
+        if ([NotepadTest]::Text($output).Trim() -eq '15' -and
+            [NotepadTest]::Text($status) -match 'Exit code: 0.*Windows PowerShell' -and
+            [NotepadTest]::Text($history) -match '^Script  #4  Windows PowerShell') { $true }
+    } 'the one-off PowerShell calculation and its history entry')
+    if ([NotepadTest]::Send($shell, 0x0147, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32() -ne $shellIndex) { # CB_GETCURSEL
+        throw 'The one-off PowerShell run changed the selected shell.'
+    }
+    Write-Host 'One-off PowerShell execution passed.'
     if ($TestWsl) {
-        $shell = [NotepadTest]::GetDlgItem($panel, 102)
-        [void] [NotepadTest]::Send($shell, 0x014E, [IntPtr] 3, [IntPtr]::Zero) # CB_SETCURSEL
-        [void] [NotepadTest]::Send($panel, 0x0111, [IntPtr] 65638, $shell) # CBN_SELCHANGE
-        [void] [NotepadTest]::Send($otherEditor, 2160, [IntPtr] ($secondEnd + 2), [IntPtr] $commands.Length)
+        [void] [NotepadTest]::Send($otherEditor, 2160, [IntPtr] ($powerShellEnd + 2), [IntPtr] $commands.Length)
         $run = Get-ContextCommand $otherEditor 'exec++' $true
         [void] [NotepadTest]::Post($notepadWindow, 0x0111, [IntPtr] $run, [IntPtr]::Zero)
         [void] (Wait-For {
