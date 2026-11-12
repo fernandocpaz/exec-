@@ -131,17 +131,19 @@ bool OutputPanel::show() {
     return true;
 }
 
-void OutputPanel::start(std::string selection, std::wstring directory, bool joinLines) {
+void OutputPanel::start(std::string selection, std::wstring directory, bool joinLines,
+                        std::optional<Shell> shellOverride) {
     if (run_) {
         MessageBeep(MB_OK);
         return;
     }
-    auto script = prepareCommand(selection, selectedShell_, joinLines ? InputMode::JoinLines : inputMode_);
+    const auto shell = shellOverride.value_or(selectedShell_);
+    auto script = prepareCommand(selection, shell, joinLines ? InputMode::JoinLines : inputMode_);
     if (script.find_first_not_of(" \t\r\n") == std::string::npos) {
         SetWindowTextW(status_, L"Select a command with text to run.");
         return;
     }
-    const auto name = commandName(script, selectedShell_);
+    const auto name = commandName(script, shell);
     auto title = name.empty() ? std::wstring(L"Script") : toWide(name, CP_UTF8);
     constexpr std::size_t titleLimit = 80;
     if (title.size() > titleLimit) {
@@ -156,7 +158,7 @@ void OutputPanel::start(std::string selection, std::wstring directory, bool join
         return;
     }
     try {
-        run_ = std::make_unique<ProcessRun>(std::move(script), std::move(directory), selectedShell_);
+        run_ = std::make_unique<ProcessRun>(std::move(script), std::move(directory), shell);
     } catch (...) {
         KillTimer(hwnd_, pollTimer);
         SetWindowTextW(status_, L"Could not start the shell worker.");
@@ -164,6 +166,7 @@ void OutputPanel::start(std::string selection, std::wstring directory, bool join
     }
 
     current_ = {};
+    current_.shell = shell;
     current_.title = std::move(title);
     pendingBytes_.clear();
     selectedJson_.reset();
@@ -173,7 +176,7 @@ void OutputPanel::start(std::string selection, std::wstring directory, bool join
     started_ = std::chrono::steady_clock::now();
     SetWindowTextW(output_, L"");
     SetWindowTextW(json_, L"View JSON");
-    SetWindowTextW(status_, (std::wstring(L"Running in ") + shellName(selectedShell_) + L" ...").c_str());
+    SetWindowTextW(status_, (std::wstring(L"Running in ") + shellName(shell) + L" ...").c_str());
     SendMessageW(history_, CB_SETCURSEL, 0, 0);
     for (HWND control : {history_, clearHistory_, shell_, input_, json_, clear_}) {
         EnableWindow(control, FALSE);
@@ -472,7 +475,8 @@ void OutputPanel::poll() {
     }
     auto update = run_->takeUpdate();
     pendingBytes_ += update.output;
-    const UINT codePage = selectedShell_ == Shell::CommandPrompt ? GetACP() : CP_UTF8;
+    const auto* shell = shellName(current_.shell);
+    const UINT codePage = current_.shell == Shell::CommandPrompt ? GetACP() : CP_UTF8;
     const std::size_t count = update.finished ? pendingBytes_.size() : completePrefix(pendingBytes_, codePage);
     auto text = toWide(std::string_view(pendingBytes_).substr(0, count), codePage);
     std::replace(text.begin(), text.end(), L'\0', L'\uFFFD');
@@ -482,7 +486,7 @@ void OutputPanel::poll() {
 
     if (!update.finished) {
         const std::wstring activity = stopping_ ? L"Stopping" :
-            std::wstring(L"Running in ") + shellName(selectedShell_);
+            std::wstring(L"Running in ") + shell;
         SetWindowTextW(status_, (activity + L"  |  " + elapsed).c_str());
         return;
     }
@@ -501,8 +505,8 @@ void OutputPanel::poll() {
     }
 
     current_.truncated = update.truncated;
-    current_.status = result + L"  |  " + elapsed + L"  |  " + shellName(selectedShell_);
-    current_.title += L"  #" + std::to_wstring(++runNumber_) + L"  " + shellName(selectedShell_) +
+    current_.status = result + L"  |  " + elapsed + L"  |  " + shell;
+    current_.title += L"  #" + std::to_wstring(++runNumber_) + L"  " + shell +
                       L"  -  " + result + L" (" + elapsed + L")";
     results_.push_front(std::move(current_));
     if (results_.size() > historyLimit) {

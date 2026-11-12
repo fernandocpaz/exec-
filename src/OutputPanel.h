@@ -14,11 +14,13 @@ public:
     ~OutputPanel();
 
     bool show();
-    void start(std::string selection, std::wstring directory, bool joinLines);
+    void start(std::string selection, std::wstring directory, bool joinLines,
+               std::optional<Shell> shellOverride);
     void applyTheme() const;
 
 private:
     struct Result {
+        Shell shell = Shell::WindowsPowerShell;
         std::wstring output;
         std::wstring status;
         std::wstring title;

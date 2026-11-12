@@ -15,6 +15,8 @@ Highlight a command and press **Ctrl+Shift+Enter** or right-click and choose **e
 
 The shell picker offers **Windows PowerShell**, **PowerShell 7** (if installed), **Command Prompt**, and **WSL (Bash)**. Each run starts a fresh shell in the active file’s folder when available. In Windows PowerShell, `curl` runs native `curl.exe` when it is installed. Use `Invoke-WebRequest` explicitly for the PowerShell cmdlet. CMD accepts a single command line, which can chain commands with `&` or `&&`.
 
+For a one-off PowerShell run, highlight the script and choose **exec++ (Windows PowerShell)** from the editor context menu or **Plugins → exec++ → Run in Windows PowerShell**. The regular shortcut uses the shell shown in the picker.
+
 **WSL (Bash)** needs an installed WSL distribution with Bash. It uses your default distribution for Windows files and the owning distribution for files opened from `\\wsl.localhost\` or `\\wsl$\`. Windows drive paths appear under the distro’s configured mount path, such as `/mnt/c`. A document without a file folder starts in your Linux home directory. Runs are noninteractive.
 
 | Input mode | Behavior |
